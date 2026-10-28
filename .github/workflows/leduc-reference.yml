@@ -1,0 +1,36 @@
+# Derived from reports/leduc_linux_ci_preparation_20261028/leduc-reference.yml.
+# Publish ONLY this file and the two public scripts. No private project checkout.
+name: Frozen public Leduc reference
+on:
+  workflow_dispatch:
+    inputs:
+      authorized:
+        description: Authorize one free public standard Ubuntu run
+        required: true
+        type: boolean
+        default: false
+permissions: {}
+concurrency:
+  group: frozen-leduc-reference
+  cancel-in-progress: false
+jobs:
+  reference:
+    if: ${{ inputs.authorized && !github.event.repository.private }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    env:
+      OPENBLAS_NUM_THREADS: '1'
+      OMP_NUM_THREADS: '1'
+      PYTHONDONTWRITEBYTECODE: '1'
+      SCRIPT_BASE: https://raw.githubusercontent.com/${{ github.repository }}/${{ github.sha }}
+    steps:
+      - name: Retrieve only allowlisted public scripts
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error --max-time 60 "$SCRIPT_BASE/export_reference.py" -o "$RUNNER_TEMP/export_reference.py"
+          curl --fail --silent --show-error --max-time 60 "$SCRIPT_BASE/build_reference.sh" -o "$RUNNER_TEMP/build_reference.sh"
+          sha256sum "$RUNNER_TEMP/export_reference.py" "$RUNNER_TEMP/build_reference.sh"
+      - name: Build frozen source and export synthetic tree once
+        run: |
+          set -euo pipefail
+          /usr/bin/time -f 'BUILD_EXPORT_RESOURCE wall_seconds=%e user_cpu_seconds=%U system_cpu_seconds=%S maxrss_kib=%M exit=%x' timeout --signal=TERM --kill-after=10s 1200s bash "$RUNNER_TEMP/build_reference.sh"
