@@ -1,0 +1,44 @@
+name: Frozen Leduc bounded math gate
+on:
+  workflow_dispatch:
+    inputs:
+      authorized:
+        type: boolean
+        default: false
+        required: true
+        description: Authorize one free public bounded math test
+permissions: {}
+concurrency:
+  group: frozen-leduc-reference
+  cancel-in-progress: false
+jobs:
+  math:
+    if: ${{ inputs.authorized && !github.event.repository.private }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    env:
+      OPENBLAS_NUM_THREADS: '1'
+      OMP_NUM_THREADS: '1'
+      PYTHONDONTWRITEBYTECODE: '1'
+      SCRIPT_BASE: https://raw.githubusercontent.com/${{ github.repository }}/${{ github.sha }}
+      OLD_BASE: https://raw.githubusercontent.com/ebisuchan/leduc-frozen-reference-5886e0b/b5d44676bb7a0c54808cba7cd13d74206871fa11
+    steps:
+      - name: Reuse verified public builder and retrieve bounded test
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error --max-time 60 "$OLD_BASE/build_reference.sh" -o "$RUNNER_TEMP/build_reference.sh"
+          curl --fail --silent --show-error --max-time 60 "$OLD_BASE/export_reference.py" -o "$RUNNER_TEMP/export_reference.py"
+          echo '663cd5e0e47de1e00b77e419226d53c9001a22de01614f478243d7d65bb939e5  '"$RUNNER_TEMP/build_reference.sh" | sha256sum -c -
+          echo '73f719ee408aceda87a20855c599db54fccb00ab28dbb37f65f1b5cc92b36a22  '"$RUNNER_TEMP/export_reference.py" | sha256sum -c -
+          curl --fail --silent --show-error --max-time 60 "$SCRIPT_BASE/math_sampling.py" -o "$RUNNER_TEMP/math_sampling.py"
+          sha256sum "$RUNNER_TEMP/math_sampling.py"
+      - name: Rebuild exact frozen reference once
+        run: |
+          /usr/bin/time -f 'M1_BUILD_RESOURCE wall_seconds=%e user_cpu_seconds=%U system_cpu_seconds=%S maxrss_kib=%M exit=%x' timeout --signal=TERM --kill-after=10s 1200s bash "$RUNNER_TEMP/build_reference.sh"
+      - name: Install public Python module dependencies in CI venv only
+        run: |
+          timeout --signal=TERM --kill-after=5s 90s "$RUNNER_TEMP/frozen-leduc/venv/bin/python" -m pip install --disable-pip-version-check --only-binary=:all: -r "$RUNNER_TEMP/frozen-leduc/upstream/requirements.txt"
+          "$RUNNER_TEMP/frozen-leduc/venv/bin/python" -m pip freeze
+      - name: Real upstream fixed-policy sampling and finite ES tape
+        run: |
+          /usr/bin/time -f 'M1_TEST_RESOURCE wall_seconds=%e user_cpu_seconds=%U system_cpu_seconds=%S maxrss_kib=%M exit=%x' timeout --signal=TERM --kill-after=5s 150s "$RUNNER_TEMP/frozen-leduc/venv/bin/python" "$RUNNER_TEMP/math_sampling.py" "$RUNNER_TEMP/frozen-leduc/upstream"
